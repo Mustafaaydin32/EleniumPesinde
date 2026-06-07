@@ -11,7 +11,6 @@ namespace Platformer.Mechanics
 {
     /// <summary>
     /// This is the main class used to implement control of the player.
-    /// It is a superset of the AnimationController class, but is inlined to allow for any kind of customisation.
     /// </summary>
     public class PlayerController : KinematicObject
     {
@@ -19,19 +18,18 @@ namespace Platformer.Mechanics
         public AudioClip respawnAudio;
         public AudioClip ouchAudio;
 
-        /// <summary>
-        /// Max horizontal speed of the player.
-        /// </summary>
         public float maxSpeed = 7;
-        /// <summary>
-        /// Initial jump velocity at the start of a jump.
-        /// </summary>
         public float jumpTakeOffSpeed = 7;
+
+        [Header("Dash Ayarları")]
+        public float dashSpeed = 20f;
+        public float dashTime = 0.2f;
+        private bool isDashing;
 
         public JumpState jumpState = JumpState.Grounded;
         private bool stopJump;
-        /*internal new*/ public Collider2D collider2d;
-        /*internal new*/ public AudioSource audioSource;
+        public Collider2D collider2d;
+        public AudioSource audioSource;
         public Health health;
         public bool controlEnabled = true;
 
@@ -43,6 +41,7 @@ namespace Platformer.Mechanics
 
         private InputAction m_MoveAction;
         private InputAction m_JumpAction;
+        private InputAction m_DashAction; // Yeni Input System için Dash aksiyonu
 
         public Bounds Bounds => collider2d.bounds;
 
@@ -54,18 +53,25 @@ namespace Platformer.Mechanics
             spriteRenderer = GetComponent<SpriteRenderer>();
             animator = GetComponent<Animator>();
 
+            // Yeni Input System Atamaları
             m_MoveAction = InputSystem.actions.FindAction("Player/Move");
             m_JumpAction = InputSystem.actions.FindAction("Player/Jump");
-            
+
+            // Dash için Sol Shift tuşunu manuel olarak atıyoruz
+            m_DashAction = new InputAction("Dash", binding: "<Keyboard>/leftShift");
+
             m_MoveAction.Enable();
             m_JumpAction.Enable();
+            m_DashAction.Enable(); // Dash tuşunu aktifleştir
         }
 
         protected override void Update()
         {
-            if (controlEnabled)
+            // Eğer dash atmıyorsa ve kontrol ondaysa normal hareket et
+            if (controlEnabled && !isDashing)
             {
                 move.x = m_MoveAction.ReadValue<Vector2>().x;
+
                 if (jumpState == JumpState.Grounded && m_JumpAction.WasPressedThisFrame())
                     jumpState = JumpState.PrepareToJump;
                 else if (m_JumpAction.WasReleasedThisFrame())
@@ -73,13 +79,44 @@ namespace Platformer.Mechanics
                     stopJump = true;
                     Schedule<PlayerStopJump>().player = this;
                 }
+
+                // Dash Tetikleme (Yeni Input System uyumlu)
+                if (m_DashAction.WasPressedThisFrame())
+                {
+                    StartCoroutine(Dash());
+                }
             }
-            else
+            // Kontrol yoksa ve dash atmıyorsa dur
+            else if (!isDashing)
             {
                 move.x = 0;
             }
+
             UpdateJumpState();
             base.Update();
+        }
+
+        // Dash Mekaniği (Coroutine)
+        IEnumerator Dash()
+        {
+            isDashing = true;
+            float originalSpeed = maxSpeed;
+
+            // Hızı dash hızına çıkar
+            maxSpeed = dashSpeed;
+
+            // Karakterin baktığı yönü bul (flipX true ise sola bakıyordur)
+            float dashDirection = spriteRenderer.flipX ? -1f : 1f;
+
+            // Dash süresince hareketi o yöne zorla
+            move.x = dashDirection;
+
+            // Dash süresi kadar bekle
+            yield return new WaitForSeconds(dashTime);
+
+            // Her şeyi eski haline getir
+            maxSpeed = originalSpeed;
+            isDashing = false;
         }
 
         void UpdateJumpState()
@@ -128,10 +165,14 @@ namespace Platformer.Mechanics
                 }
             }
 
-            if (move.x > 0.01f)
-                spriteRenderer.flipX = false;
-            else if (move.x < -0.01f)
-                spriteRenderer.flipX = true;
+            // Eğer dash atıyorsak yönü değiştirmemesi için ufak bir kontrol eklendi
+            if (!isDashing)
+            {
+                if (move.x > 0.01f)
+                    spriteRenderer.flipX = false;
+                else if (move.x < -0.01f)
+                    spriteRenderer.flipX = true;
+            }
 
             animator.SetBool("grounded", IsGrounded);
             animator.SetFloat("velocityX", Mathf.Abs(velocity.x) / maxSpeed);
